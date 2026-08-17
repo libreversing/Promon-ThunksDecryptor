@@ -1,62 +1,7 @@
-# Promon Indirect Calls Analysis
-
-A small analysis of how Promon Shield indirect calls works.
-
-## Introduction
-
-While reversing Promon, I've encountered thunks that make calls to a QWORD.
-Here's an example of one:
-
-<img src="img/thunk.png" alt="thunk" width="250">
-
-As we can see, it's pretty annoying while reversing to not be able to know which function is actually being called. So, I've decided to analyze how it works.
-
-## Simple Analysis
-
-First, we need to look at the QWORD's value:
-
-<img src="img/qword_table.png" alt="qword_table" width="650">
-
-As we can see, all addresses are encrypted.
-Since this is a table, the decryption is probably targeting the whole table rather than this single QWORD. So, I had the idea to look at the xrefs to the QWORDs in the table:
-
-<img src="img/xrefs.png" alt="xrefs" width="500">
-
-Yeah, as I predicted, there aren't only xrefs to the thunk; there are also xrefs to another function.
-Let's look at it...
-
-*After some time..*
-
-The function finally finished decompiling. It's a 6K-line control-flow-obfuscated function.
-As we can see, the first 200 lines of code (after the variable definitions) are just setting up the control-flow obfuscation states and variables:
-
-<img src="img/states.png" alt="states" width="500">
-
-it's kinda... traumatizing. Yeah, the obfuscation is pretty crazy.
-Just look at these images:
-
-<img src="img/whileobf.png" alt="whileobf" width="250">
-
-<img src="img/whileobf_dezoomed.png" alt="whileobf_dezoomed" width="250">
-
-As I won't go too deep into this function, we'll just jump to the usage of the QWORD table xref.
-## Decyption
-
-<img src="img/qword_decryption.png" alt="qword_decryption" width="500">
-
-Yeah.. its that simple...
-The clean equivalent of it is pretty simple:
-
-```cpp
-decrypted_address = qword_A40100[idx] - 0xAB676042843BC1B0 * idx & 0xFFFFFFFFFFFFFFFF;
-```
-
-Lets make a simple Python script that decrypts the whole table!
-
-```python
 import re
 
-# very lazy behavior
+# very lazy behavior, no need to have exactly same format as me
+# just copy paste and it works, if it doesn't please send an issue with the qword table and the script so i can fix it
 table = """
 __data:0000000000A40100 8C BA A9 84 qword_A40100    DCQ 0xAB67604284A9BA8C  ; DATA XREF: sub_8C567C+49EC↑o
 __data:0000000000A40100 42 60 67 AB                                         ; sub_8C567C+C080↑o ...
@@ -215,17 +160,3 @@ decryption_key = 0xAB676042843BC1B0
 for i, (addr, val) in enumerate(matches):
     decrypted = hex((int(val, 16) - (i + 1) * decryption_key) & 0xFFFFFFFFFFFFFFFF) # decryption here
     print(f"[{i}][{addr}][{val}] Decypted Address: {decrypted}")
-```
-
-and the output is:
-
-```txt
-[0][0000000000A40100][0xAB67604284A9BA8C] Decypted Address: 0x6df8dc
-[1][0000000000A40108][0x56CEC0850900EC8C] Decypted Address: 0x89692c
-[2][0000000000A40110][0x23620C78D30A87C] Decypted Address: 0x7d636c
-[3][0000000000A40118][0xAD9D810A11056EAC] Decypted Address: 0x1667ec
-[4][0000000000A40120][0x5904E14C95A3221C] Decypted Address: 0x7859ac
-// etc.. 
-```
-
-And here, we successfully decrypted the addresses!
